@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Generated data and artifacts: never commit these (they are rebuilt by the pipeline)
+data/
+reports/
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+dbt_project/.user.yml
+logs/
+
+# Secrets and local config
+.env
+*.duckdb
+*.duckdb.wal
+
+# Local Airflow environments (see README)
+.airflow/
+.venv-airflow/
