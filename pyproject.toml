@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Prose docstring (rendered as markdown in the Airflow UI) and an HTML template: wrapping hurts readability.
+"orchestration/dags/ecom_elt_daily.py" = ["E501"]
+"scripts/build_quality_report.py" = ["E501"]
