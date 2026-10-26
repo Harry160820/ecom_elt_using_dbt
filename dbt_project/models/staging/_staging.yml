@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: One row per customer version as sent by the source (new customers and changes).
+    columns:
+      - name: customer_id
+        data_tests: [not_null]
+      - name: segment
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [standard, premium, vip]
+  - name: stg_products
+    description: One row per product price version.
+    columns:
+      - name: product_id
+        data_tests: [not_null]
+      - name: unit_price
+        data_tests: [non_negative]
+  - name: stg_orders
+    description: One row per order event (placed, shipped, delivered, cancelled), deduplicated.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [order_id, updated_at]
+    columns:
+      - name: order_id
+        data_tests: [not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [placed, shipped, delivered, cancelled]
+  - name: stg_order_items
+    description: Order lines with a validity flag. Invalid lines are routed to quarantined_order_items.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [order_id, line_no]
+    columns:
+      - name: is_valid
+        data_tests: [not_null]
+  - name: stg_payments
+    columns:
+      - name: payment_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [captured, failed]
