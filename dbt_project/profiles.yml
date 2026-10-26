@@ -1,0 +1,11 @@
+# Connection profile. It contains no secrets, so it is safe to commit.
+# dbt must be run from the repository root (the `make` targets and run_pipeline.py do this),
+# because the default database path below is relative to the current directory.
+ecom_elt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('ECOM_DUCKDB_PATH', 'data/warehouse/ecom.duckdb') }}"
+      schema: main
+      threads: 4
