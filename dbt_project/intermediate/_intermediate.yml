@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: int_customers_current
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+  - name: int_order_totals
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: order_total
+        data_tests: [non_negative]
+  - name: quarantined_order_items
+    description: Dead-letter table. Rows here failed a business rule and were excluded from totals.
