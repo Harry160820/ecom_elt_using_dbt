@@ -22,3 +22,5 @@ logs/
 # Local Airflow environments (see README)
 .airflow/
 .venv-airflow/
+.env
+
