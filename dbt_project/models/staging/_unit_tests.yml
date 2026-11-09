@@ -1,0 +1,48 @@
+version: 2
+
+# Unit tests run a model against tiny hand-written inputs and compare to expected output.
+# They test the *logic*, not the data. They run in milliseconds and need no warehouse data.
+unit_tests:
+  - name: stg_order_items_flags_invalid_and_dedupes
+    model: stg_order_items
+    given:
+      - input: source('raw', 'order_items')
+        rows:
+          - {order_id: O1, line_no: 1, product_id: P1, quantity: 2, unit_price: 10.50, _batch_date: 2024-01-01, _loaded_at: 2024-01-01 01:00:00}
+          - {order_id: O1, line_no: 2, product_id: P2, quantity: 0, unit_price: 5.00, _batch_date: 2024-01-01, _loaded_at: 2024-01-01 01:00:00}
+          - {order_id: O1, line_no: 3, product_id: P3, quantity: -1, unit_price: 5.00, _batch_date: 2024-01-01, _loaded_at: 2024-01-01 01:00:00}
+          # the source re-sent line 1; only one copy must survive
+          - {order_id: O1, line_no: 1, product_id: P1, quantity: 2, unit_price: 10.50, _batch_date: 2024-01-01, _loaded_at: 2024-01-01 02:00:00}
+    expect:
+      rows:
+        - {order_id: O1, line_no: 1, quantity: 2, line_total: 21.00, is_valid: true}
+        - {order_id: O1, line_no: 2, quantity: 0, line_total: 0.00, is_valid: false}
+        - {order_id: O1, line_no: 3, quantity: -1, line_total: -5.00, is_valid: false}
+
+  - name: fct_orders_picks_customer_version_valid_at_order_time
+    model: fct_orders
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('stg_orders')
+        rows:
+          - {order_id: O1, customer_id: C1, order_ts: 2024-01-05 10:00:00, status: placed, updated_at: 2024-01-05 10:00:00}
+          - {order_id: O2, customer_id: C1, order_ts: 2024-01-20 10:00:00, status: placed, updated_at: 2024-01-20 10:00:00}
+          # O2 later ships: the fact keeps ONE row per order, in its latest state
+          - {order_id: O2, customer_id: C1, order_ts: 2024-01-20 10:00:00, status: shipped, updated_at: 2024-01-21 09:00:00}
+      - input: ref('dim_customers')
+        rows:
+          - {customer_key: K1, customer_id: C1, valid_from: 2024-01-01 00:00:00, valid_to: 2024-01-10 00:00:00}
+          - {customer_key: K2, customer_id: C1, valid_from: 2024-01-10 00:00:00, valid_to: null}
+      - input: ref('int_order_totals')
+        rows:
+          - {order_id: O1, valid_line_count: 1, total_units: 2, order_total: 20.00}
+          - {order_id: O2, valid_line_count: 1, total_units: 1, order_total: 15.00}
+      - input: ref('stg_payments')
+        rows:
+          - {payment_id: PAY1, order_id: O1, method: upi, amount: 20.00, status: captured, paid_at: 2024-01-05 10:01:00}
+    expect:
+      rows:
+        - {order_id: O1, customer_key: K1, order_status: placed, order_total: 20.00, payment_status: captured}
+        - {order_id: O2, customer_key: K2, order_status: shipped, order_total: 15.00, payment_status: null}
