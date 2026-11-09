@@ -1,0 +1,123 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: >
+      SCD Type 2 customer dimension. One row per customer version; valid_from/valid_to
+      delimit when that version was true. is_current marks the latest version.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: customer_key
+        data_type: varchar
+        constraints: [{type: not_null}, {type: primary_key}]
+        data_tests: [unique]
+      - name: customer_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+      - name: full_name
+        data_type: varchar
+      - name: email
+        data_type: varchar
+      - name: city
+        data_type: varchar
+      - name: segment
+        data_type: varchar
+      - name: signup_date
+        data_type: date
+      - name: valid_from
+        data_type: timestamp
+        constraints: [{type: not_null}]
+      - name: valid_to
+        data_type: timestamp
+      - name: is_current
+        data_type: boolean
+        constraints: [{type: not_null}]
+
+  - name: dim_products
+    description: Type 1 product dimension (latest attributes only).
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+
+  - name: dim_date
+    columns:
+      - name: date_day
+        data_tests: [unique, not_null]
+
+  - name: fct_orders
+    description: >
+      One row per order in its latest state. Incremental on updated_at. The data contract
+      makes dbt fail the build if a column name or type drifts.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: customer_key
+        data_type: varchar
+        description: Customer version valid at order time (SCD2 as-of join).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_key
+      - name: customer_id
+        data_type: varchar
+      - name: order_ts
+        data_type: timestamp
+      - name: order_date
+        data_type: date
+      - name: order_status
+        data_type: varchar
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [placed, shipped, delivered, cancelled]
+      - name: valid_line_count
+        data_type: integer
+      - name: total_units
+        data_type: integer
+      - name: order_total
+        data_type: decimal(14,2)
+        data_tests: [non_negative]
+      - name: payment_method
+        data_type: varchar
+      - name: payment_status
+        data_type: varchar
+      - name: updated_at
+        data_type: timestamp
+        constraints: [{type: not_null}]
+
+  - name: fct_order_items
+    description: One row per valid order line, with product category and order date.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [order_id, line_no]
+
+  - name: mart_daily_revenue
+    columns:
+      - name: order_date
+        data_tests: [unique, not_null]
+      - name: recognised_revenue
+        data_tests: [non_negative]
+
+  - name: mart_revenue_by_city
+    description: Revenue by the customer's city at order time.
+
+  - name: mart_customer_ltv
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: mart_pipeline_health
+    description: One row per batch day with load counts and quarantine counts.
+    columns:
+      - name: batch_date
+        data_tests: [unique, not_null]
