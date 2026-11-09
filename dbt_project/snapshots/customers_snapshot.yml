@@ -1,0 +1,10 @@
+# SCD Type 2 with dbt snapshots. dbt compares the current state of each customer with the
+# stored history; on change it end-dates the old row (dbt_valid_to) and inserts a new one.
+snapshots:
+  - name: customers_snapshot
+    relation: ref('int_customers_current')
+    config:
+      schema: snapshots
+      unique_key: customer_id
+      strategy: timestamp
+      updated_at: updated_at
