@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  ECOM_DUCKDB_PATH: ${{ github.workspace }}/data/warehouse/ecom.duckdb
+
+jobs:
+  lint-and-unit-tests:
+    name: Lint and Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -q
+
+  dag-integrity:
+    name: Airflow DAG integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install "apache-airflow==3.3.2" duckdb==2.0.0 pytest==9.1.1
+      - run: pytest tests/test_dag_integrity.py -q
+        env:
+          AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+
+  dbt-build:
+    name: Build and test the dbt project end to end
+    needs: lint-and-unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt
+
+      # Replays 5 days exactly like the daily schedule: generate -> load -> dbt build (models, snapshot, tests).
+      # Any failing dbt test fails this job, which blocks the merge.
+      - name: Run the pipeline for 5 days
+        run: python -m scripts.run_pipeline --days 5 --fresh --no-report
+
+      - name: Build the quality and freshness report
+        run: python -m scripts.build_quality_report --expected-date 2024-01-05
+
+      - name: Generate dbt docs (lineage graph)
+        run: dbt docs generate --project-dir dbt_project --profiles-dir dbt_project
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: reports/quality_report.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs
+          path: |
+            dbt_project/target/index.html
+            dbt_project/target/catalog.json
+            dbt_project/target/manifest.json
+
+      # Only main publishes the baseline manifest that pull requests compare against.
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: dbt-manifest
+          path: dbt_project/target/manifest.json
+
+  dbt-change-impact:
+    name: dbt change impact (slim CI, state comparison)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt
+
+      - name: Download the manifest from the latest successful run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID=$(gh run list --workflow CI --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ]; then
+            gh run download "$RUN_ID" --name dbt-manifest --dir prod_state || echo "No baseline manifest available."
+          fi
+
+      - name: List models changed by this pull request, plus everything downstream
+        run: |
+          dbt parse --project-dir dbt_project --profiles-dir dbt_project
+          {
+            echo "### dbt models affected by this PR"
+            if [ -f prod_state/manifest.json ]; then
+              echo '```'
+              dbt ls --project-dir dbt_project --profiles-dir dbt_project \
+                --select "state:modified+" --state prod_state --resource-type model --output name
+              echo '```'
+            else
+              echo "No baseline manifest yet. It is created after the first successful run on main."
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
