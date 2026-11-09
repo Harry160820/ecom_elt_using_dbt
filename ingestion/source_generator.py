@@ -17,16 +17,16 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import csv
 import os
 import random
-import argparse
-from datetime import date, timedelta, datetime, time
+from datetime import date, datetime, time, timedelta
+from decimal import ROUND_HALF_UP, Decimal
+from functools import cache
 from pathlib import Path
-from decimal import Decimal, ROUND_HALF_UP
-from functools import cache 
 
-from ingestion.config import LANDING_DIR, TABLES, SOURCE_START_DATE
+from ingestion.config import LANDING_DIR, SOURCE_START_DATE
 
 START_DATE = date.fromisoformat(SOURCE_START_DATE)
 DEFAULT_SEED = 42
